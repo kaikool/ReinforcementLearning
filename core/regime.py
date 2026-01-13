@@ -3,18 +3,23 @@ from hmmlearn.hmm import GaussianHMM
 import joblib
 import os
 import warnings
+from scipy.special import logsumexp
+from sklearn.preprocessing import StandardScaler
 
 warnings.filterwarnings("ignore")
-
-from sklearn.preprocessing import StandardScaler
 
 class MarketRegime:
     """
     Phát hiện Chế độ thị trường (Macro Regime) sử dụng Gaussian HMM.
-    Bổ sung các chốt chặn an toàn:
-    - Return Scaling: Tránh HMM collapse khi thay đổi scale dữ liệu.
-    - Degeneracy Check: Phát hiện trạng thái chết hoặc quá lỳ.
+    Kiến trúc V7: Ổn định hóa tham số và tối ưu hóa toán học Causal Filter.
     """
+    
+    # --- Operational Constants ---
+    MIN_COVAR = 1e-4
+    NOISE_STD = 1e-4
+    COLLAPSE_THRESHOLD = 1e-9
+    PROB_CLIP_MIN = 1e-10
+    MAX_FIT_RETRIES = 3
     
     def __init__(self, n_components=3, covariance_type="diag", n_iter=100, model_path="regime_model.pkl"):
         self.n_components = n_components
@@ -27,7 +32,7 @@ class MarketRegime:
             n_iter=n_iter,
             random_state=42,
             init_params="stmc",
-            min_covar=1e-4 # FIX: Prevent Covariance Collapse
+            min_covar=self.MIN_COVAR
         )
         self.scaler = StandardScaler()
         self.is_fitted = False
@@ -36,46 +41,32 @@ class MarketRegime:
     # Sử dụng phương pháp chuẩn: Fit Offline (trên tập Train) -> Predict Online (trên tập Test/Live)
 
 
-    def _reorder_states(self):
+    def _get_state_variances(self):
+        """Extract total variance per state (diag or full covariance)."""
         if self.covariance_type == "diag":
-            # 1. Calculate Variances for Sorting
             if self.model.covars_.ndim == 2:
-                 variances = self.model.covars_.sum(axis=1)
+                return self.model.covars_.sum(axis=1)
             else:
-                 # Unexpected 3D covars in diag mode? Extract diagonal sum (Trace)
-                 variances = np.array([np.trace(self.model.covars_[i]) for i in range(self.n_components)])
-            
-            vol_order = np.argsort(variances).flatten()
-            
-            # Reorder States
-            self.model.startprob_ = self.model.startprob_[vol_order]
-            self.model.transmat_ = self.model.transmat_[vol_order, :][:, vol_order]
-            self.model.means_ = self.model.means_[vol_order]
-            
-            # Handle Covariance Reordering & Shape Correction
-            new_cov = self.model.covars_[vol_order].copy()
-            if new_cov.ndim == 3:
-                 print(f"⚠️ Reshaping 3D Covars {new_cov.shape} to 2D Diag...")
-                 # Extract diagonal: (n, k, k) -> (n, k)
-                 new_cov = np.diagonal(new_cov, axis1=1, axis2=2).copy()
-            
-            self.model.covars_ = new_cov
-            
-        else: # Full Covariance
-            # Calculate Variances (Trace)
-            if self.model.covars_.ndim == 3:
-                variances = np.array([np.trace(self.model.covars_[i]) for i in range(self.n_components)])
-            else:
-                # Unexpected 2D in full mode? 
-                variances = self.model.covars_.sum(axis=1)
+                return np.array([np.trace(self.model.covars_[i]) for i in range(self.n_components)])
+        else:  # full
+            return np.array([np.trace(self.model.covars_[i]) for i in range(self.n_components)])
 
-            vol_order = np.argsort(variances).flatten()
-
-            self.model.startprob_ = self.model.startprob_[vol_order]
-            self.model.transmat_ = self.model.transmat_[vol_order, :][:, vol_order]
-            self.model.means_ = self.model.means_[vol_order]
-            
-            self.model.covars_ = self.model.covars_[vol_order].copy()
+    def _reorder_states(self):
+        variances = self._get_state_variances()
+        vol_order = np.argsort(variances).flatten()
+        
+        # Reorder Parameters
+        self.model.startprob_ = self.model.startprob_[vol_order]
+        self.model.transmat_ = self.model.transmat_[vol_order, :][:, vol_order]
+        self.model.means_ = self.model.means_[vol_order]
+        
+        # Handle Covariance Reordering & Reshaping
+        new_cov = self.model.covars_[vol_order].copy()
+        if self.covariance_type == "diag" and new_cov.ndim == 3:
+             print(f"⚠️ Reshaping 3D Covars {new_cov.shape} to 2D Diag...")
+             new_cov = np.diagonal(new_cov, axis1=1, axis2=2).copy()
+        
+        self.model.covars_ = new_cov
 
     def fit(self, X_train):
         """
@@ -96,8 +87,7 @@ class MarketRegime:
         X_scaled = self.scaler.fit_transform(X)
         
         # ADD NOISE to prevent Covariance Collapse (CRITICAL FIX)
-        # Add micro random noise to prevent constant 0 variance
-        noise = np.random.normal(0, 1e-4, X_scaled.shape) 
+        noise = np.random.normal(0, self.NOISE_STD, X_scaled.shape) 
         X_scaled += noise
         
         print(f"HMM Offline Fit: {X_scaled.shape} shape. Data Range: [{X_scaled.min():.4f}, {X_scaled.max():.4f}], Mean: {X_scaled.mean():.4f}")
@@ -106,37 +96,33 @@ class MarketRegime:
         best_score = -np.inf
         best_model = None
         
-        for i in range(3): # Retry up to 3 times
+        for i in range(self.MAX_FIT_RETRIES): 
             try:
-                # Create FRESH model instance to avoid state pollution
                 candidate_model = GaussianHMM(
                     n_components=self.n_components, 
                     covariance_type=self.covariance_type, 
                     n_iter=self.n_iter,
                     random_state=42 + i,
                     init_params="stmc",
-                    min_covar=1e-4
+                    min_covar=self.MIN_COVAR
                 )
                 
                 candidate_model.fit(X_scaled)
                 
-                # Check 1: Convergence
                 if not candidate_model.monitor_.converged:
                     print(f"⚠️ HMM Try {i+1}: Did not converge.")
                     continue
                     
-                # Check 2: Covariance Collapse
+                # Check Covariance Collapse
                 if self.covariance_type == "diag":
                     min_covar = np.min(candidate_model.covars_)
                 else:
                     min_covar = np.min([np.min(np.diag(c)) for c in candidate_model.covars_])
                     
-                if min_covar < 1e-9: # Relaxed check, trust min_covar param of HMM
+                if min_covar < self.COLLAPSE_THRESHOLD:
                      print(f"⚠️ HMM Try {i+1}: Covariance Collapse detected (min_covar={min_covar:.10f}).")
                      continue
                 
-                # If passed checks, keep this model
-                # FIX: Normalize score by n_features to make it comparable train vs retrain
                 score = candidate_model.score(X_scaled) / X_scaled.shape[1]
                 if score > best_score:
                     best_score = score
@@ -234,7 +220,7 @@ class MarketRegime:
             
             # Cấu hình lại min_covar để tránh lỗi "Covariance collapsed" khi load model
             if hasattr(self.model, 'min_covar'):
-                self.model.min_covar = 1e-4
+                self.model.min_covar = self.MIN_COVAR
 
     def predict_online(self, X_step, prev_log_prob=None):
         """
@@ -261,43 +247,25 @@ class MarketRegime:
         
         if prev_log_prob is None:
             # Initial Step: log(StartProb) + log(Emission)
-            # Clip startprob to avoid log(0)
-            safe_start = np.clip(self.model.startprob_, 1e-10, 1.0)
+            safe_start = np.clip(self.model.startprob_, self.PROB_CLIP_MIN, 1.0)
             curr_log_unnorm = np.log(safe_start) + framelogprob.flatten()
         else:
-            # Recursion: Log-Sum-Exp for Transition
-            # log P(Z_t | X_1:t-1) = log sum_j ( exp(log P(Z_{t-1}=j | X_1:t-1)) * P(Z_t | Z_{t-1}=j) )
-            #                      = log sum_j exp( log_prev_prob[j] + log_transmat[j, :] )
-            
             # 1. Compute Log Transition Matrix safely
-            safe_transmat = np.clip(self.model.transmat_, 1e-10, 1.0)
+            safe_transmat = np.clip(self.model.transmat_, self.PROB_CLIP_MIN, 1.0)
             log_transmat = np.log(safe_transmat)
             
             # 2. Compute Log Alpha (Forward) Step
-            # work_buffer[i, j] = log_prev[i] + log_trans[i, j]
-            # We want for each state j (next): logsumexp over i (prev)
-            
-            # Broadcast prev_log_prob (N,) to (N, N) where rows are i
             log_prev_tiled = np.tile(prev_log_prob.reshape(-1, 1), (1, self.n_components))
-            
-            # Matrix of all path log-probs: M[i, j]
             log_paths = log_prev_tiled + log_transmat
             
-            # LogSumExp over axis 0 (sum over previous states i)
-            log_trans_prob = np.zeros(self.n_components)
-            for j in range(self.n_components):
-                # Manual LogSumExp for stability: max + log(sum(exp(x-max)))
-                vec = log_paths[:, j]
-                max_val = np.max(vec)
-                log_trans_prob[j] = max_val + np.log(np.sum(np.exp(vec - max_val)))
+            # 3. LogSumExp over axis 0 (prev states) using professional Scipy implementation
+            log_trans_prob = logsumexp(log_paths, axis=0)
                 
-            # 3. Update with Emission: log P(Z_t | X_1:t) = log P(X_t|Z_t) + log P(Z_t|X_1:t-1)
+            # 4. Update with Emission
             curr_log_unnorm = framelogprob.flatten() + log_trans_prob
 
-        # 4. Normalize in Log Space
-        # log P(Z_t) = log_unnorm - log_sum_exp(log_unnorm)
-        max_log = np.max(curr_log_unnorm)
-        log_norm = max_log + np.log(np.sum(np.exp(curr_log_unnorm - max_log)))
+        # 5. Normalize in Log Space
+        log_norm = logsumexp(curr_log_unnorm)
         curr_log_prob = curr_log_unnorm - log_norm
         
         # Convert to normal probability for return

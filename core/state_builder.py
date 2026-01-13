@@ -3,36 +3,45 @@ from collections import deque
 from core.feature_factory import QuantFeatureFactory
 
 # Single Source of Truth for Feature Selection
-# Đảm bảo nhất quán giữa Training (Batch) và Inference (Online)
 FEATURE_COLUMNS = [
     'log_ret',
-    'realized_vol',    # Độ lớn biến động (Magnitude)
+    'realized_vol',    # Magnitude
     'rsi_raw',
     'macd_raw',
     'cci_raw',
-    'atr_rel',         # Phạm vi biến động (Range)
-    'bb_pct',          # Vị trí giá tương đối (Location)
-    'vol_rel',         # Đại diện thanh khoản (Liquidity Proxy)
+    'atr_rel',         # Range
+    'bb_pct',          # Location
+    'vol_rel',         # Liquidity Proxy
     'is_active_hour',
     'entropy_raw',
     'efficiency_raw',
-    'hurst',                 # Chế độ thị trường liên tục (Continuous Regime)
-    'entropy_delta',         # Proxy sự kiện (Confusion Shock)
-    'price_shock',           # Proxy sự kiện (Biến động giá bất ngờ)
+    'hurst',                 # Continuous Regime
+    'entropy_delta',         # Confusion Shock
+    'price_shock',           # Proxy sự kiện
     'interaction_trend_vol',
-    'trend_efficiency',      # Alpha Proxy (New)
-    'directional_persistence', # Win-rate Proxy (New)
+    'trend_efficiency',      # Alpha Proxy
+    'directional_persistence', # Win-rate Proxy
     'vol_scalar',      # Hệ số scale vị thế
-    'vol_ratio',       # Tỷ lệ biến động tương đối (Current/Target)
-    'last_cost_pct',   # Chi phí giao dịch trước đó (% Equity)
+    'vol_ratio',       # Tỷ lệ biến động tương đối
+    'last_cost_pct',   # Chi phí giao dịch trước đó
     'last_vol_scalar',  # Context quy mô vị thế trước đó
 ]
 
 class StateBuilder:
     """
-    Module lắp ráp Vector Quan sát (Observation Tensor) cuối cùng.
-    Refactored: Single Source of Truth, Consistent Logic, No Hidden Calculations.
+    Module lắp ráp Vector Quan sát (StateBuilder V8 - Continuous Scales).
+    Đảm bảo tính nhất quán về dải giá trị giữa Market Features và Portfolio Features.
     """
+    
+    # --- Operational Constants ---
+    REGIME_SCALE_FACTOR = 2.0
+    PNL_CLIP_MIN = -1.0
+    PNL_CLIP_MAX = 1.0
+    EPSILON = 1e-9
+    
+    # Scale Portfolio Time (Uniform [0, 1] -> Z-score approximate)
+    TIME_MEAN = 0.5
+    TIME_STD = 0.29 # Standard deviation of Uniform(0, 1)
     
     def __init__(self, window_size=64, n_features=None):
         self.window_size = window_size
@@ -44,16 +53,16 @@ class StateBuilder:
     
     @property
     def feature_names(self):
-        """Trả về danh sách tên các đặc trưng theo đúng thứ tự trong vector observation."""
+        """Trả về danh sách tên các đặc trưng."""
         names = list(FEATURE_COLUMNS)
         # Macro Regime (3 components)
         names.extend(['regime_0', 'regime_1', 'regime_2'])
         # Portfolio / Context States
-        names.extend(['unrealized_pnl_norm', 'time_in_trade_norm', 'position_weight'])
+        names.extend(['unrealized_pnl_z', 'time_in_trade_z', 'position_weight'])
         return names
     
     def reset(self):
-        """Đặt lại trạng thái cho Chế độ thực thi."""
+        """Đặt lại trạng thái."""
         self.ff.reset()
         self.history.clear()
         
@@ -66,13 +75,12 @@ class StateBuilder:
                          perform_normalization: bool = True,
                          frozen: bool = False) -> np.ndarray:
         """
-        [Chế độ Online/Step-by-Step] Tạo vector trạng thái cho 1 bước.
+        [Chế độ Online] Tạo vector trạng thái cho 1 bước.
         """
         features = []
         
-        # 2. Xây dựng Feature Vector dựa trên FEATURE_COLUMNS
+        # 1. Market Features (Z-scored)
         for col in FEATURE_COLUMNS:
-            # Ưu tiên lấy từ Market Data, sau đó đến Portfolio State (Tránh trùng lặp logic)
             val = indicators.get(col)
             if val is None:
                 val = portfolio_state.get(col)
@@ -81,66 +89,88 @@ class StateBuilder:
                  raise RuntimeError(f"CRITICAL: Feature '{col}' missing! Check Env.")
 
             if perform_normalization:
-                # Online: Chuẩn hóa trực tiếp
                 norm_val = self.ff.update_and_normalize(col, val, frozen=frozen)
                 features.append(norm_val)
             else:
-                # Batch: Value đã được normalize trước đó
+                # Validation in Batch Mode
+                if not np.isfinite(val):
+                    raise ValueError(f"Feature {col} not finite: {val}")
                 features.append(val)
                 
-        # 3. Macro Regime (Giữ nguyên xác suất thô -> Scale up)
-        # FIX: Scale Regime Probs to match Z-Score magnitude (~O(2.0))
-        features.extend(regime_probs * 2.0)
+        # 2. Macro Regime (3 components)
+        if regime_probs.shape != (3,):
+            raise ValueError(f"Expected regime_probs shape (3,), got {regime_probs.shape}")
+            
+        # Scale to match Z-score magnitude
+        features.extend(regime_probs * self.REGIME_SCALE_FACTOR)
         
-        # 4. Trạng thái Danh mục (Portfolio State)
+        # 3. Portfolio State (Unify to Z-score scales)
+        # Unrealized PnL: [% Equity] -> Limited to [-1, 1] then Z-scored if possible
         unrealized_pnl = portfolio_state.get('unrealized_pnl', 0.0)
         equity = portfolio_state.get('equity', 10000.0)
-        norm_pnl = np.clip(unrealized_pnl / (equity + 1e-9), -1.0, 1.0)
-        features.append(norm_pnl) 
+        pnl_pct = np.clip(unrealized_pnl / (equity + self.EPSILON), self.PNL_CLIP_MIN, self.PNL_CLIP_MAX)
         
-        # FIX: Single Source Normalization (User Request)
-        # Value passed in is already normalized in Env (min(steps/1000, 1.0))
-        norm_time = portfolio_state.get('time_in_trade', 0.0)
-        features.append(norm_time)
+        if perform_normalization:
+            # Dùng EMA Factory để chuẩn hóa PnL - giúp Agent hiểu quy mô PnL hiện tại so với lịch sử
+            norm_pnl_z = self.ff.update_and_normalize('unrealized_pnl_z', pnl_pct, frozen=frozen)
+            features.append(norm_pnl_z)
+        else:
+            features.append(pnl_pct) # Fallback to clipped pct if skipping norm
         
-        pos = portfolio_state.get('position', 0)
+        # Time in Trade: [0, 1] -> Z-score (Mean=0.5, Std=0.29)
+        raw_time = portfolio_state.get('time_in_trade', 0.0)
+        norm_time_z = (raw_time - self.TIME_MEAN) / self.TIME_STD
+        features.append(norm_time_z)
+        
+        # Current Position (Weight already reflects scale)
+        pos = portfolio_state.get('position', 0.0)
         features.append(float(pos))
         
-        # Các tính năng mới (Action Threshold) đã được xử lý trong FEATURE_COLUMNS nếu có
-
-        
         obs_vector = np.array(features, dtype=np.float32)
-        
-        # Cập nhật bộ đệm lịch sử
-        # Lưu ý: Việc Frame Stacking được xử lý bên ngoài bởi SB3 Wrapper.
         self.history.append(obs_vector)
         
         return obs_vector
 
     def build_state(self, market_history, regime_probs, account_state):
         """
-        [Chế độ Batch - Experimental] Dùng để assemble state nhanh khi training.
-        Tuy nhiên, với LSTM và Gym Env, ta thường dùng Step-based (process_one_step).
-        Hàm này giữ lại để tham khảo hoặc dùng cho Feed-forward models.
+        [Chế độ Batch] Dùng cho training offline hoặc feed-forward.
         """
-        # Select đúng các cột Features
-        try:
-            market_tensor = market_history[FEATURE_COLUMNS].values
-        except KeyError as e:
-            # Fallback nếu thiếu cột (ví dụ environment cũ)
-            print(f"KeyError in build_state: {e}. Using all values.")
-            market_tensor = market_history.values
+        # Validate input
+        if regime_probs.shape != (3,):
+            # Nếu truyền vào mảng nhiều chiều (n_steps, 3)
+            if regime_probs.ndim == 2 and regime_probs.shape[1] == 3:
+                pass
+            else:
+                raise ValueError(f"Expected regime_probs shape (3,) or (N,3), got {regime_probs.shape}")
+
+        # Market Data
+        market_tensor = market_history[FEATURE_COLUMNS].values
         
-        # Meta features
-        norm_pnl = np.clip(account_state['unrealized_pnl'] / (account_state['equity'] + 1e-9), -1.0, 1.0)
-        norm_time = min(account_state['time_in_trade'] / 100.0, 1.0)
-        pos_weight = float(account_state['position'])
+        # Portfolio Features
+        equity = account_state.get('equity', 10000.0)
+        unrealized_pnl = account_state.get('unrealized_pnl', 0.0)
+        pnl_pct = np.clip(unrealized_pnl / (equity + self.EPSILON), self.PNL_CLIP_MIN, self.PNL_CLIP_MAX)
         
-        meta_vec = np.concatenate([regime_probs, [norm_pnl, norm_time, pos_weight]])
+        raw_time = account_state.get('time_in_trade', 0.0)
+        norm_time_z = (raw_time - self.TIME_MEAN) / self.TIME_STD
         
-        # Broadcast
-        meta_tensor = np.tile(meta_vec, (len(market_tensor), 1))
+        pos_weight = float(account_state.get('position', 0.0))
         
+        # Regime scaling
+        scaled_regime = regime_probs * self.REGIME_SCALE_FACTOR
+        
+        # Meta vector
+        # Lưu ý: Trong batch mode chúng ta không thể dễ dàng áp dụng EMA normalization 
+        # cho PnL mà không lặp qua từng bước. Ở đây dùng pnl_pct tạm thời.
+        if scaled_regime.ndim == 1:
+            meta_vec = np.concatenate([scaled_regime, [pnl_pct, norm_time_z, pos_weight]])
+            meta_tensor = np.tile(meta_vec, (len(market_tensor), 1))
+        else:
+            # Batch of regime probs
+            meta_vecs = []
+            for i in range(len(scaled_regime)):
+                 meta_vecs.append(np.concatenate([scaled_regime[i], [pnl_pct, norm_time_z, pos_weight]]))
+            meta_tensor = np.array(meta_vecs)
+
         full_state = np.hstack([market_tensor, meta_tensor])
-        
         return full_state.astype(np.float32)
