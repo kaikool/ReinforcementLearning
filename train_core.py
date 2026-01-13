@@ -239,7 +239,7 @@ def main():
     df_raw.rename(columns=rename_map, inplace=True)
     
     # 4. Feature Engineering
-    print(">> Tính toán chỉ báo kỹ thuật liên tục...")
+    print(">> Tính toán chỉ báo kỹ thuật liên tục (Raw Features for Env)...")
     factory = QuantFeatureFactory()
     
     # [LỖI FIX] Chuyển 'date' thành index trước để khớp với all_features sau burn-in
@@ -247,7 +247,8 @@ def main():
     df_raw.set_index('date', inplace=True)
     df_raw.sort_index(inplace=True)
     
-    all_features = factory.process_data(df_raw)
+    # Lấy dữ liệu RAW để Env tự tính toán logic vật lý (Hurst, Vol...)
+    all_features = factory.process_data(df_raw, normalize=False)
     
     # Chia lại tập dữ liệu sau Burn-in (Tận dụng index để đồng bộ hoàn toàn)
     df_raw = df_raw.loc[all_features.index].copy()
@@ -274,7 +275,7 @@ def main():
     train_features['abs_log_ret'] = train_features['log_ret'].abs()
     test_features['abs_log_ret'] = test_features['log_ret'].abs()
     
-    regime_cols = ['log_ret', 'realized_vol', 'entropy_raw', 'abs_log_ret']
+    regime_cols = ['log_ret', 'realized_vol', 'entropy_raw']
     train_regime_data = train_features[regime_cols].fillna(0.0).values
     test_regime_data = test_features[regime_cols].fillna(0.0).values
 
@@ -357,9 +358,10 @@ def main():
     print(">> Đang khởi tạo môi trường (2 Envs) với VecNormalize...")
     train_vec = DummyVecEnv([make_env_train for _ in range(2)])
     
+    # Chuẩn hóa Quan sát (Obs) - KHÔNG chuẩn hóa lại vì Env đã tự làm qua StateBuilder
     train_vec = VecNormalize(
         train_vec, 
-        norm_obs=True, 
+        norm_obs=False, 
         norm_reward=False, # Tắt để giữ tính ổn định cho Log-Return
         clip_obs=10.0, 
         clip_reward=10.0,
@@ -373,8 +375,8 @@ def main():
     )
     
     eval_vec = DummyVecEnv([make_env_test])
-    # Eval dùng cùng tham số chuẩn hóa (nhưng không cập nhật stats)
-    eval_vec = VecNormalize(eval_vec, norm_obs=True, norm_reward=False, training=False)
+    # Tắt norm_obs cho Eval
+    eval_vec = VecNormalize(eval_vec, norm_obs=False, norm_reward=False, training=False)
     
     # 7. Thiết lập Mô hình RL (Recurrent PPO - New Train)
     print(">> Đang khởi tạo mô hình RecurrentPPO (New Train - Optimized Params)...")

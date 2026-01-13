@@ -166,8 +166,8 @@ class QuantFeatureFactory:
         else:
             print(f"   [Factory] Warning: Stats file not found at {path}")
 
-    def process_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Pipeline xử lý dữ liệu (Training Mode)."""
+    def process_data(self, df: pd.DataFrame, normalize: bool = True) -> pd.DataFrame:
+        """Pipeline xử lý dữ liệu."""
         df = df.copy()
         if 'date' in df.columns:
             # Xử lý định dạng ngày tháng hỗn hợp
@@ -196,41 +196,40 @@ class QuantFeatureFactory:
         if len(df) > burn_in + 100: # Chỉ drop nếu đủ dữ liệu
             df = df.iloc[burn_in:]
         
-        # 5. Normalize (EWM Online Simulation) - Apply AFTER drop to avoid initial noise skew
-        features_to_norm = [
-            'log_ret', 'realized_vol', 
-            'macd_raw', 'rsi_raw', 'cci_raw', 'atr_rel', 
-            'bb_pct', 'vol_rel', 
-            'entropy_raw', 'efficiency_raw',
-            'hurst', 'entropy_delta', 'price_shock', 
-            'interaction_trend_vol', 'trend_efficiency', 'directional_persistence'
-        ]
-        
-        for col in features_to_norm:
-            if col in df.columns:
-                ewm_mean = df[col].ewm(alpha=self.ema_alpha, adjust=False).mean()
-                ewm_std = df[col].ewm(alpha=self.ema_alpha, adjust=False).std()
-                
-                df[col] = (df[col] - ewm_mean) / (ewm_std + 1e-8)
-                
-                if col in ['price_shock', 'entropy_delta']:
-                    df[col] = df[col].clip(-5.0, 5.0).fillna(0.0)
-                else:
-                    df[col] = df[col].clip(-self.clip_range, self.clip_range).fillna(0.0)
-                
-                # Lưu trạng thái EMA cuối cùng để duy trì tính liên tục khi Online
-                final_mean = ewm_mean.iloc[-1]
-                final_std = ewm_std.iloc[-1]
-                final_var = (final_std ** 2)
-                
-                if col not in self.stats:
-                    self.stats[col] = EMAState(alpha=self.ema_alpha)
-                
-                self.stats[col].mean = final_mean
-                self.stats[col].var = max(1e-8, final_var)
-                self.stats[col].initialized = True
-
-                # [LỖI 39 FIX] REMOVED shift(1). Alignment handled by TradingEnv using current_step - 1.
+        if normalize:
+            # 5. Normalize (EWM Online Simulation) - Apply AFTER drop to avoid initial noise skew
+            features_to_norm = [
+                'log_ret', 'realized_vol', 
+                'macd_raw', 'rsi_raw', 'cci_raw', 'atr_rel', 
+                'bb_pct', 'vol_rel', 
+                'entropy_raw', 'efficiency_raw',
+                'hurst', 'entropy_delta', 'price_shock', 
+                'interaction_trend_vol', 'trend_efficiency', 'directional_persistence'
+            ]
+            
+            for col in features_to_norm:
+                if col in df.columns:
+                    ewm_mean = df[col].ewm(alpha=self.ema_alpha, adjust=False).mean()
+                    ewm_std = df[col].ewm(alpha=self.ema_alpha, adjust=False).std()
+                    
+                    df[col] = (df[col] - ewm_mean) / (ewm_std + 1e-8)
+                    
+                    if col in ['price_shock', 'entropy_delta']:
+                        df[col] = df[col].clip(-5.0, 5.0).fillna(0.0)
+                    else:
+                        df[col] = df[col].clip(-self.clip_range, self.clip_range).fillna(0.0)
+                    
+                    # Lưu trạng thái EMA cuối cùng để duy trì tính liên tục khi Online
+                    final_mean = ewm_mean.iloc[-1]
+                    final_std = ewm_std.iloc[-1]
+                    final_var = (final_std ** 2)
+                    
+                    if col not in self.stats:
+                        self.stats[col] = EMAState(alpha=self.ema_alpha)
+                    
+                    self.stats[col].mean = final_mean
+                    self.stats[col].var = max(1e-8, final_var)
+                    self.stats[col].initialized = True
 
         df.dropna(inplace=True)
         return df
