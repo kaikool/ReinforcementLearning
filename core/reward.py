@@ -51,7 +51,7 @@ class CompoundReward:
             pnl_reward *= vol_boost
             
         # 4. TOTAL
-        total_reward = pnl_reward + dd_penalty + holding_penalty
+        total_reward = pnl_reward + dd_penalty
         raw_reward = total_reward # Before clipping
         
         # Final Guard: Replace NaN with 0.0 before clipping

@@ -238,25 +238,18 @@ def main():
     rename_map = {time_col: 'date', 'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'}
     df_raw.rename(columns=rename_map, inplace=True)
     
-    # Chia tỷ lệ 80/20 cho Huấn luyện và Kiểm tra nội bộ
-    # Tỷ lệ Chia Train/Test: 80/20
-    split_idx = int(len(df_raw) * 0.8)
-    if split_idx < 200:
-        print(f"❌ CẢNH BÁO: Dữ liệu quá ít ({len(df_raw)} dòng). Cần ít nhất 500 dòng để huấn luyện ổn định.")
-        if len(df_raw) < 110: return # Không đủ để tính Indicators
-        split_idx = max(1, len(df_raw) - 20) # Cố gắng lấy tối đa
-        
-    train_df = df_raw.iloc[:split_idx].copy().reset_index(drop=True)
-    test_df = df_raw.iloc[split_idx:].copy().reset_index(drop=True)
-    
-    print(f"Tỷ lệ Chia Train/Test: {len(train_df)} / {len(test_df)}")
-    
     # 4. Feature Engineering
     print(">> Tính toán chỉ báo kỹ thuật liên tục...")
     factory = QuantFeatureFactory()
+    
+    # [LỖI FIX] Chuyển 'date' thành index trước để khớp với all_features sau burn-in
+    df_raw['date'] = pd.to_datetime(df_raw['date'], dayfirst=True, format='mixed')
+    df_raw.set_index('date', inplace=True)
+    df_raw.sort_index(inplace=True)
+    
     all_features = factory.process_data(df_raw)
     
-    # Chia lại tập dữ liệu sau Burn-in
+    # Chia lại tập dữ liệu sau Burn-in (Tận dụng index để đồng bộ hoàn toàn)
     df_raw = df_raw.loc[all_features.index].copy()
     
     # Re-calculate split based on processed data length
