@@ -270,42 +270,47 @@ def main():
     factory.save_stats(factory_stats_path)
     
     # Lấy Multi-variate Data để train Regime Model (Risk Aware)
-    # Cần: log_ret (Direction), realized_vol (Magnitude), entropy_raw (Structure)
-    # FIX: Add abs(log_ret) for Expectancy Pass (Distinguish direction strength)
+    # Cần: log_ret (Direction), realized_vol (Magnitude), entropy_raw (Structure), abs_log_ret (Strength)
     train_features['abs_log_ret'] = train_features['log_ret'].abs()
     test_features['abs_log_ret'] = test_features['log_ret'].abs()
     
-    regime_cols = ['log_ret', 'realized_vol', 'entropy_raw']
-    train_regime_data = train_features[regime_cols].fillna(0.0).values
-    test_regime_data = test_features[regime_cols].fillna(0.0).values
+    regime_cols = ['log_ret', 'realized_vol', 'entropy_raw', 'abs_log_ret']
 
     # Huấn luyện mô hình trạng thái thị trường (Regime)
     regime_model_path = os.path.join(artifact_dir, "regime_model.pkl")
     regime_model = MarketRegime(n_components=3, n_iter=100, model_path=regime_model_path)
     
     # Cấu hình Warm-up cho HMM (Chống Leakage)
-    warmup_size = min(3000, int(len(train_regime_data) * 0.3))
+    warmup_size = min(3000, int(len(train_features) * 0.3))
     
-    if len(train_regime_data) > 500 and warmup_size > 200:
-        print(f">> Khởi động HMM & Scaler trên {warmup_size} nến Warm-up...")
-        warmup_data = train_regime_data[:warmup_size]
+    if len(train_features) > 500 and warmup_size > 200:
+        print(f">> Khởi động HMM trên {warmup_size} nến Warm-up...")
+        
+        # [FIX] Trích xuất dữ liệu regime gốc để fit warmup
+        train_regime_data_full = train_features[regime_cols].fillna(0.0).values
+        warmup_data = train_regime_data_full[:warmup_size]
         regime_model.fit(warmup_data)
         
-        # Agent sẽ học trên dữ liệu sau Warm-up
+        # [FIX] Cắt bỏ phần Warm-up đồng thời cho cả dataframes và features
         train_features = train_features.iloc[warmup_size:].reset_index(drop=True)
         train_df = train_df.iloc[warmup_size:].reset_index(drop=True)
-
         
+        # [FIX] Trích xuất lại dữ liệu regime SAU KHI slice để đồng bộ hóa
+        train_regime_data = train_features[regime_cols].fillna(0.0).values
+    else:
+        # Trường hợp không có warmup
+        train_regime_data = train_features[regime_cols].fillna(0.0).values
 
-            
+    # Trích xuất dữ liệu test regime (không cần cắt warmup)
+    test_regime_data = test_features[regime_cols].fillna(0.0).values
+
+    # Dự báo xác suất trạng thái (Causal Filter)
     if len(train_regime_data) > 1000:
-        # NOTE: Already fitted on Warmup or Full Train Analysis
-        # If not fitted yet (no warmup), fit now
         if not regime_model.is_fitted:
-             print(">> Training Regime Model (Offline Loop) on Full Train Data...")
-             regime_model.fit(train_regime_data)
-             
-        # FIX: Use Causal Filter for Training Data too (Avoid Observation Leakage)
+            print(">> Training Regime Model on Full Train Data...")
+            regime_model.fit(train_regime_data)
+            
+        # [FIX] Bây giờ train_probs sẽ khớp chính xác với chiều dài của train_features
         train_probs = regime_model.predict_proba_causal(train_regime_data)
     else:
         print(">> Warning: Không đủ dữ liệu để train HMM.")
