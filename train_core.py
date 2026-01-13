@@ -87,7 +87,8 @@ class CustomLoggingCallback(BaseCallback):
                 "step_reward": info.get('reward_decomposition', {}).get('total', 0),
                 "action_logit": info.get('action_logit', 0), 
                 "win_rate": info.get('win_rate', 0),
-                "num_trades": info.get('num_trades', 0), 
+                "num_trades": info.get('num_trades', 0),
+                "weight_delta": info.get('weight_delta', 0),
                 "max_drawdown": info.get('max_drawdown', 0),
                 "episode": self.episode_count
             }

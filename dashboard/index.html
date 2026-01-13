@@ -617,7 +617,16 @@
                 },
                 options: { ...chartBase.options, scales: { ...chartBase.options.scales, y1: { position: 'right', grid: { display: false }, ticks: { color: '#ec4899' } } } }
             }),
-            turnover: new Chart(document.getElementById('c-turnover'), { ...chartBase, data: { datasets: [getDs('Cường độ', '#f59e0b')] } }),
+            turnover: new Chart(document.getElementById('c-turnover'), {
+                ...chartBase,
+                data: {
+                    datasets: [
+                        getDs('Biến động trọng số', '#f59e0b'),
+                        getDs('Tổng số lệnh', '#3b82f6')
+                    ]
+                },
+                options: { ...chartBase.options, scales: { ...chartBase.options.scales, y1: { position: 'right', grid: { display: false } } } }
+            }),
             step_reward: new Chart(document.getElementById('c-step-reward'), { ...chartBase, data: { datasets: [getDs('Lợi tức bước', '#10b981', true)] } }),
             vol: new Chart(document.getElementById('c-vol'), { ...chartBase, data: { datasets: [getDs('Biến động', '#ec4899')] } }),
             decomp: new Chart(document.getElementById('c-decomp'), {
@@ -646,6 +655,8 @@
         charts.decision.data.datasets[0].yAxisID = 'y';
         charts.decision.data.datasets[1].yAxisID = 'y1';
         charts.decision.data.datasets[2].yAxisID = 'y1';
+        charts.turnover.data.datasets[0].yAxisID = 'y';
+        charts.turnover.data.datasets[1].yAxisID = 'y1';
         charts.decomp.data.datasets[0].yAxisID = 'y';
         charts.decomp.data.datasets[1].yAxisID = 'y';
         charts.decomp.data.datasets[2].yAxisID = 'y1';
@@ -702,7 +713,7 @@
 
                 sync(charts.equity, [stepData.map(i => i.net_worth)]);
                 sync(charts.decision, [stepData.map(i => i.price), stepData.map(i => i.target_weight), stepData.map(i => i.action_logit)]);
-                sync(charts.turnover, [stepData.map(i => i.weight_delta)]);
+                sync(charts.turnover, [stepData.map(i => i.weight_delta), stepData.map(i => i.num_trades)]);
                 sync(charts.step_reward, [stepData.map(i => i.step_reward)]);
                 sync(charts.vol, [stepData.map(i => i.vol_ann)]);
                 sync(charts.micro, [stepData.map(i => i.hurst), stepData.map(i => i.efficiency), stepData.map(i => i.persistence)]);

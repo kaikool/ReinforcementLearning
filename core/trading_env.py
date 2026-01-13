@@ -439,6 +439,7 @@ class AdvancedTradingEnv(gym.Env):
             'reward_decomposition': reward_info,
             'regime_stats': self._get_regime_stats(vol_ann),
             'weight': float(self.current_weight),
+            'weight_delta': float(delta),
             'action_logit': float(logit),
             'edge_score': self.compute_edge_score(logit),
             'edge_active': bool(self.edge_active)
