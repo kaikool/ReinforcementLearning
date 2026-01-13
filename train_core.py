@@ -81,9 +81,13 @@ class CustomLoggingCallback(BaseCallback):
                 "target_weight": info.get('weight', 0),
                 "net_worth": info.get('net_worth', 0),
                 "vol_ann": info.get('regime_stats', {}).get('vol', 0),
+                "hurst": info.get('regime_stats', {}).get('hurst', 0.5),
+                "efficiency": info.get('regime_stats', {}).get('efficiency', 0),
+                "persistence": info.get('regime_stats', {}).get('persistence', 0),
                 "step_reward": info.get('reward_decomposition', {}).get('total', 0),
                 "action_logit": info.get('action_logit', 0), 
                 "win_rate": info.get('win_rate', 0),
+                "num_trades": info.get('num_trades', 0), 
                 "max_drawdown": info.get('max_drawdown', 0),
                 "episode": self.episode_count
             }
