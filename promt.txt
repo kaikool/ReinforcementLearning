@@ -1,0 +1,63 @@
+PHẦN I: KIỂM TOÁN CƠ CHẾ HỌC (RL CONVERGENCE)
+Mục tiêu: Tìm nguyên nhân tại sao Reward luôn âm hoặc Agent không học.
+
+PASS REWARD SHAPING: Reward là Dense (từng step) hay Sparse (chỉ khi đóng lệnh)? Nếu Sparse, Agent đã được áp dụng Reward Propagation (như GAE - Generalized Advantage Estimation) chưa?
+
+PASS ENTROPY CHECK: Đồ thị Action Entropy có giảm quá nhanh về 0 không? (Nếu về 0 quá sớm, Agent bị kẹt vào một hành vi duy nhất -> Policy Collapse).
+
+PASS REWARD STATIONARITY: Reward có được Z-score Normalization theo cửa sổ trượt (rolling window) không? (Nếu không, biến động cực lớn của XAUUSD sẽ làm nổ Gradient).
+
+PASS ACTION PENALTY: Có cơ chế phạt khi Over-trading không? (Phạt phí swap, phí commission trực tiếp vào từng bước đi thay vì cuối episode).
+
+PASS EXPLORATION STRATEGY: Dùng Epsilon-greedy, Noisy Networks hay Parameter Space Noise? Cách nào đảm bảo Agent không "sợ hãi" mà đứng im?
+
+PHẦN II: KIỂM TOÁN DỮ LIỆU & ĐẶC TRƯNG (FEATURE ENGINEERING)
+Mục tiêu: Đảm bảo Agent thấy được "Tín hiệu" thay vì "Nhiễu".
+
+PASS MARKOV PROPERTY: State hiện tại có đủ để ra quyết định không? (Có bao gồm: Vị thế hiện tại, Unrealized PnL, Khoảng cách tới SL/TP, và Volatility hiện tại không?)
+
+PASS MULTI-TIMEFRAME: Agent có nhìn thấy bối cảnh lớn (H1/D1) khi trade khung nhỏ (M1/M5) không?
+
+PASS SEASONALITY INPUT: Có input Sin/Cos của Time-of-day không? (XAUUSD có đặc tính thanh khoản cực thấp lúc giao phiên Mỹ-Á).
+
+PASS LOOK-AHEAD BIAS: Scaler (MinMax/Standard) được fit trên toàn bộ dữ liệu hay chỉ fit trên Train Set? (Nếu fit toàn bộ -> FAIL).
+
+PHẦN III: KIỂM TOÁN TÀI CHÍNH & THỰC THI (QUANT BACKTEST)
+Mục tiêu: Loại bỏ ảo tưởng về lợi nhuận "trên giấy".
+
+PASS TICK-LEVEL FIDELITY: Backtest chạy trên OHLC (4 giá trị) hay Tick data? Nếu lệnh khớp tại giá High/Low mà không có volume tại đó -> FAIL.
+
+PASS LATENCY MODEL: Có cộng thêm 100ms - 500ms Execution Delay không? (Vàng biến động rất nhanh, khớp instant là không tưởng).
+
+PASS SPREAD DYNAMICS: Spread là cố định hay biến thiên theo ATR/Volume? (Lúc tin ra spread Vàng có thể giãn từ 20 lên 200 pips).
+
+PASS MARGIN CALL LOGIC: Hệ thống xử lý thế nào khi Equity < Margin Requirement? Agent có bị ép đóng lệnh (Force Close) không?
+
+PHẦN IV: KIỂM TOÁN ĐỘ BỀN (ROBUSTNESS & STRESS TEST)
+Mục tiêu: Đảm bảo Agent không "cháy" khi thị trường điên cuồng.
+
+PASS SHARPE/SORTINO STABILITY: Khi dịch chuyển Start-date, chỉ số Sharpe có biến động > 30% không?
+
+PASS BLACK SWAN TEST: Nếu ném vào dữ liệu Flash Crash (giá chạy 500 pips trong 1 phút), Agent sẽ cắt lỗ ngay hay tiếp tục gồng/nhồi lệnh?
+
+PASS ADVERSARIAL ATTACK: Thêm nhiễu trắng (White Noise) vào 5% dữ liệu Input, Policy có bị đảo ngược từ Long sang Short không?
+
+PASS REWARD SIGN FLIP: (Câu hỏi chốt) Nếu đảo ngược Reward, Agent có biết cách thua tiền nhanh nhất không? (Nếu không -> Model đang học sai quy luật nhân quả).
+
+PHẦN V: KIỂM TOÁN KIẾN TRÚC MÃ NGUỒN (ENGINEERING)
+Mục tiêu: Đảm bảo code sạch, không lỗi tiềm ẩn.
+
+PASS GRADIENT CLIPPING: Có giới hạn độ lớn của Gradient không? (Tránh hiện tượng Exploding Gradients trong tài chính).
+
+PASS MEMORY LEAK: Khi train 10.000 episodes, RAM có tăng tiến tính không? (Thường gặp khi lưu Replay Buffer sai cách).
+
+PASS COMPUTE EFFICIENCY: Hệ thống có hỗ trợ Vectorized Environment (chạy nhiều môi trường song song) để tăng tốc độ lấy mẫu không?
+
+KẾT LUẬN & HÀNH ĐỘNG TIẾP THEO
+Nếu Dev trả lời "Có" hết, hãy yêu cầu họ xuất Tensorboard/WandB Logs cho bạn xem các biểu đồ sau:
+
+Value Loss: Phải giảm dần và ổn định.
+
+Policy Entropy: Phải giảm từ từ, không được sập về 0 ngay lập tức.
+
+Explain Variance: (Trong PPO) Phải dương. Nếu âm, nghĩa là mô hình Value (đánh giá thị trường) còn tệ hơn cả đoán mò.

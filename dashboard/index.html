@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quant-AI Terminal v3.3 | Symmetry Balanced Edition</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
+    <script src="papaparse.min.js"></script>
+    <style>
+        :root {
+            --bg: #040508;
+            --surface: rgba(12, 15, 22, 0.98);
+            --border: rgba(255, 255, 255, 0.08);
+            --accent: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.2);
+            --success: #10b981;
+            --danger: #ef4444;
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --glass: blur(20px);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: var(--bg);
+            color: var(--text-main);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            letter-spacing: -0.015em;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            padding: 12px 16px;
+        }
+
+        /* CUSTOM TOOLTIP */
+        #chart-tooltip {
+            position: fixed;
+            background: rgba(4, 5, 8, 0.98);
+            backdrop-filter: var(--glass);
+            border: 1px solid var(--accent);
+            padding: 14px;
+            border-radius: 12px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.1s ease;
+            z-index: 10000;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+            min-width: 180px;
+        }
+
+        #chart-tooltip .t-head {
+            font-size: 11px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            font-weight: 800;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 6px;
+        }
+
+        #chart-tooltip .t-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            margin-bottom: 6px;
+        }
+
+        #chart-tooltip .t-label {
+            color: var(--text-dim);
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        #chart-tooltip .t-value {
+            font-family: 'JetBrains Mono';
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        /* TOP-BAR CONSOLIDATION */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-shrink: 0;
+            background: var(--surface);
+            padding: 10px 20px;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        h1 {
+            font-size: 1.05rem;
+            font-weight: 800;
+            margin: 0;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent);
+        }
+
+        h1 span {
+            color: var(--text-dim);
+            font-weight: 400;
+            font-size: 0.75rem;
+            letter-spacing: 0;
+        }
+
+        #status-light {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: var(--success);
+        }
+
+        #status-light .ping {
+            width: 7px;
+            height: 7px;
+            background: var(--success);
+            border-radius: 50%;
+            box-shadow: 0 0 12px var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.4;
+                transform: scale(0.9);
+            }
+
+            50% {
+                opacity: 1;
+                transform: scale(1.1);
+            }
+
+            100% {
+                opacity: 0.4;
+                transform: scale(0.9);
+            }
+        }
+
+        nav {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        nav button {
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            padding: 8px 16px;
+            font-size: 0.85rem;
+            font-weight: 750;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: 0.2s;
+        }
+
+        nav button.active {
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--accent);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        nav button:hover:not(.active) {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .btn-reset {
+            background: transparent;
+            color: var(--text-dim);
+            border: 1px solid var(--border);
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+            text-transform: uppercase;
+            margin-left: 20px;
+        }
+
+        .btn-reset:hover {
+            border-color: var(--danger);
+            color: var(--danger);
+            background: rgba(239, 68, 68, 0.05);
+        }
+
+        /* CONTENT SECTIONS */
+        .section {
+            flex: 1;
+            display: none;
+            overflow: hidden;
+            flex-direction: column;
+            gap: 16px;
+            animation: slideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .section.active {
+            display: flex;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* GRID SYSTEM 12-COL */
+        .grid-12 {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 16px;
+        }
+
+        /* CARDS SYMMETRY */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            transition: border-color 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: rgba(59, 130, 246, 0.4);
+        }
+
+        /* STATS BALANCING */
+        .card-stat {
+            grid-column: span 3;
+            padding: 20px 24px;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 14px;
+        }
+
+        .stat-val {
+            font-size: 34px;
+            font-weight: 800;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-main);
+            line-height: 1;
+        }
+
+        .delta {
+            font-family: 'JetBrains Mono';
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .delta.up {
+            color: var(--success);
+        }
+
+        .delta.down {
+            color: var(--danger);
+        }
+
+        /* CHARTS BALANCING */
+        .card-chart {
+            grid-column: span 6;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .card-chart-full {
+            grid-column: span 12;
+        }
+
+        .card-chart-3 {
+            grid-column: span 4;
+        }
+
+        .title {
+            font-size: 17px;
+            font-weight: 800;
+            color: var(--text-main);
+            margin-bottom: 18px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;
+        }
+
+        .title::before {
+            content: "";
+            width: 4px;
+            height: 18px;
+            background: var(--accent);
+            border-radius: 10px;
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
+
+        .title::after {
+            content: "";
+            flex: 1;
+            height: 1px;
+            background: linear-gradient(to right, var(--border), transparent);
+        }
+
+        .chart-container {
+            flex: 1;
+            min-height: 0;
+            position: relative;
+            padding-bottom: 4px;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        /* DECORATION */
+        .card::after {
+            content: "";
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 80px;
+            height: 80px;
+            background: radial-gradient(circle at 100% 100%, var(--accent-glow), transparent 75%);
+            opacity: 0.3;
+            pointer-events: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="chart-tooltip"></div>
+
+    <header>
+        <div class="header-title">
+            <h1>QUANT-AI<span>TERMINAL v3.3</span></h1>
+            <div id="status-light">
+                <div class="ping"></div> PIPELINE: ONLINE
+            </div>
+        </div>
+        <nav>
+            <button onclick="showSec('overview')" id="btn-overview" class="active">TỔNG QUAN</button>
+            <button onclick="showSec('decision')" id="btn-decision">LÔ-GÍC AI</button>
+            <button onclick="showSec('regime')" id="btn-regime">THỊ TRƯỜNG</button>
+            <button onclick="showSec('health')" id="btn-health">HỆ THỐNG GIAO DỊCH</button>
+        </nav>
+        <button onclick="resetAllZoom()" class="btn-reset">RESET VIEW</button>
+    </header>
+
+    <!-- TỔNG QUAN -->
+    <div id="sec-overview" class="section active">
+        <div class="grid-12">
+            <div class="card card-stat">
+                <div class="stat-label">TÀI SẢN RÒNG <span id="d-equity" class="delta"></span></div>
+                <div id="v-equity" class="stat-val">$0.00</div>
+            </div>
+            <div class="card card-stat">
+                <div class="stat-label">TỶ LỆ THẮNG <span id="d-wr" class="delta"></span></div>
+                <div id="v-wr" class="stat-val">0.0%</div>
+            </div>
+            <div class="card card-stat">
+                <div class="stat-label">LỢI NHUẬN/RỦI RO <span id="d-pf" class="delta"></span></div>
+                <div id="v-pf" class="stat-val">0.00</div>
+            </div>
+            <div class="card card-stat">
+                <div class="stat-label">MDD (RỦI RO TỐI ĐA) <span id="d-dd" class="delta"></span></div>
+                <div id="v-dd" class="stat-val">0.0%</div>
+            </div>
+        </div>
+        <div class="grid-12" style="flex: 1; min-height: 0;">
+            <div class="card card-chart">
+                <div class="title">Biểu Đồ Tăng Trưởng Tài Sản</div>
+                <div class="chart-container"><canvas id="c-equity"></canvas></div>
+            </div>
+            <div class="card card-chart">
+                <div class="title">Phân Phối Lợi Nhuận (Episode)</div>
+                <div class="chart-container"><canvas id="c-reward-ep"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- LÔ-GÍC -->
+    <div id="sec-decision" class="section">
+        <div class="grid-12" style="flex: 2; min-height: 0;">
+            <div class="card card-chart-full">
+                <div class="title">Phân Tích Quyết Định Thông Minh (AI Action Index)</div>
+                <div class="chart-container"><canvas id="c-decision"></canvas></div>
+            </div>
+        </div>
+        <div class="grid-12" style="flex: 1; min-height: 0;">
+            <div class="card card-chart">
+                <div class="title">Cường Độ Giao Dịch</div>
+                <div class="chart-container"><canvas id="c-turnover"></canvas></div>
+            </div>
+            <div class="card card-chart">
+                <div class="title">Thành Phần Phần Thưởng (Step Reward)</div>
+                <div class="chart-container"><canvas id="c-step-reward"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- THỊ TRƯỜNG -->
+    <div id="sec-regime" class="section">
+        <div class="grid-12" style="flex: 1; min-height: 0;">
+            <div class="card card-chart">
+                <div class="title">Mô Hình Biến Động Kỹ Thuật</div>
+                <div class="chart-container"><canvas id="c-vol"></canvas></div>
+            </div>
+            <div class="card card-chart">
+                <div class="title">Phân Tích Hành Vi (Behavior Attribution)</div>
+                <div class="chart-container"><canvas id="c-decomp"></canvas></div>
+            </div>
+        </div>
+        <div class="grid-12" style="flex: 1.2; min-height: 0;">
+            <div class="card card-chart-full">
+                <div class="title">Đặc Tính Vi Mô (Hurst, Efficiency, Persistence)</div>
+                <div class="chart-container"><canvas id="c-micro"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HỆ THỐNG -->
+    <div id="sec-health" class="section">
+        <div class="grid-12">
+            <div class="card card-stat">
+                <div class="stat-label">ENTROPY HỆ THỐNG</div>
+                <div id="v-entropy" class="stat-val" style="color:var(--accent); font-size:28px;">0.0000</div>
+            </div>
+            <div class="card card-stat">
+                <div class="stat-label">LỆCH CHÍNH SÁCH (KL)</div>
+                <div id="v-kl" class="stat-val" style="font-size:28px;">0.00000</div>
+            </div>
+            <div class="card card-stat">
+                <div class="stat-label">CRITIC LOSS</div>
+                <div id="v-vloss" class="stat-val" style="font-size:28px;">0.00000</div>
+            </div>
+            <div class="card card-stat">
+                <div class="stat-label">EXPLAINED VARIANCE</div>
+                <div id="v-ev" class="stat-val" style="font-size:28px;">0.000</div>
+            </div>
+        </div>
+        <div class="grid-12" style="flex: 1; min-height: 0;">
+            <div class="card card-chart">
+                <div class="title">Động Lực Khám Phá (Strategy Exploration)</div>
+                <div class="chart-container"><canvas id="c-entropy"></canvas></div>
+            </div>
+            <div class="card card-chart">
+                <div class="title">Độ Ổn Định Chính Sách (Convergence)</div>
+                <div class="chart-container"><canvas id="c-kl"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const WINDOW_SIZE_STEP = 500;
+        const WINDOW_SIZE_EP = 100;
+        const tooltipEl = document.getElementById('chart-tooltip');
+
+        function showSec(id) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+            document.getElementById('sec-' + id).classList.add('active');
+            document.getElementById('btn-' + id).classList.add('active');
+        }
+
+        function resetAllZoom() {
+            Object.values(charts).forEach(c => { if (c.resetZoom) c.resetZoom(); });
+        }
+
+        // --- ENHANCED TOOLTIP ---
+        const handleTooltip = (context) => {
+            const { chart, tooltip } = context;
+            if (tooltip.opacity === 0) { tooltipEl.style.opacity = 0; return; }
+
+            const bodyLines = tooltip.body.map(b => b.lines);
+            let html = `<div class="t-head">MỐC THỜI GIAN: ${tooltip.title}</div>`;
+
+            bodyLines.forEach((body, i) => {
+                const colors = tooltip.labelColors[i];
+                const parts = body[0].split(':');
+                html += `
+                    <div class="t-row">
+                        <span class="t-label" style="color:${colors.borderColor}">${parts[0]}</span>
+                        <span class="t-value">${parts[1]}</span>
+                    </div>`;
+            });
+
+            tooltipEl.innerHTML = html;
+            const pos = chart.canvas.getBoundingClientRect();
+            tooltipEl.style.opacity = 1;
+
+            let x = pos.left + window.pageXOffset + tooltip.caretX + 24;
+            let y = pos.top + window.pageYOffset + tooltip.caretY - 24;
+            if (x + 200 > window.innerWidth) x = window.innerWidth - 210;
+            if (y + 150 > window.innerHeight) y = window.innerHeight - 160;
+
+            tooltipEl.style.left = x + 'px';
+            tooltipEl.style.top = y + 'px';
+        };
+
+        // --- GLOBAL SYNC ---
+        function syncCharts(source) {
+            const min = source.scales.x.min;
+            const max = source.scales.x.max;
+            Object.values(charts).forEach(c => {
+                if (c !== source && c.canvas.id !== 'c-reward-ep' && c.scales.x) {
+                    c.scales.x.options.min = min;
+                    c.scales.x.options.max = max;
+                    c.update('none');
+                }
+            });
+        }
+
+        // --- CHART BUILDER ---
+        const chartBase = {
+            type: 'line',
+            options: {
+                responsive: true, maintainAspectRatio: false, animation: false,
+                interaction: { mode: 'index', intersect: false },
+                onHover: (event, active, chart) => {
+                    const x = event.x; if (!x) return;
+                    Object.values(charts).forEach(c => {
+                        if (c !== chart && c.canvas.id !== 'c-reward-ep') {
+                            const ax = c.scales.x; if (!ax) return;
+                            const idx = ax.getValueForPixel(x);
+                            if (idx >= 0 && idx < c.data.labels.length) {
+                                c.setActiveElements([{ datasetIndex: 0, index: Math.round(idx) }]);
+                                c.tooltip.setActiveElements([{ datasetIndex: 0, index: Math.round(idx) }], { x: x, y: 150 });
+                                c.update('none');
+                            }
+                        }
+                    });
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: '#475569', font: { size: 10, family: 'JetBrains Mono' } } },
+                    y: { grid: { color: 'rgba(255,255,255,0.03)' }, border: { display: false }, ticks: { color: '#64748b', font: { size: 10, family: 'JetBrains Mono' } } }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { enabled: false, external: handleTooltip },
+                    zoom: {
+                        zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x', onZoom: ({ chart }) => syncCharts(chart) },
+                        pan: { enabled: true, mode: 'x', onPan: ({ chart }) => syncCharts(chart) }
+                    }
+                }
+            }
+        };
+
+        const getDs = (label, color, fill = false) => ({
+            label, data: [], borderColor: color, borderWidth: 1.8,
+            pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: color,
+            tension: 0.35, fill: fill, backgroundColor: (ctx) => {
+                const c = ctx.chart; if (!c.chartArea) return null;
+                const g = c.ctx.createLinearGradient(0, 0, 0, c.height);
+                g.addColorStop(0, color.replace('1)', '0.25)'));
+                g.addColorStop(1, 'rgba(0,0,0,0)');
+                return g;
+            }
+        });
+
+        const charts = {
+            equity: new Chart(document.getElementById('c-equity'), { ...chartBase, data: { datasets: [getDs('Tài sản', '#10b981', true)] } }),
+            reward_ep: new Chart(document.getElementById('c-reward-ep'), {
+                ...chartBase,
+                data: { datasets: [getDs('Thưởng Episode', '#3b82f6', true)] }
+            }),
+            decision: new Chart(document.getElementById('c-decision'), {
+                ...chartBase,
+                data: {
+                    datasets: [
+                        getDs('Giá chuẩn hóa', '#64748b'),
+                        getDs('Tỷ lệ đầu tư', '#3b82f6', true),
+                        getDs('Logic Xung lực', '#ec4899')
+                    ]
+                },
+                options: { ...chartBase.options, scales: { ...chartBase.options.scales, y1: { position: 'right', grid: { display: false }, ticks: { color: '#ec4899' } } } }
+            }),
+            turnover: new Chart(document.getElementById('c-turnover'), { ...chartBase, data: { datasets: [getDs('Cường độ', '#f59e0b')] } }),
+            step_reward: new Chart(document.getElementById('c-step-reward'), { ...chartBase, data: { datasets: [getDs('Lợi tức bước', '#10b981', true)] } }),
+            vol: new Chart(document.getElementById('c-vol'), { ...chartBase, data: { datasets: [getDs('Biến động', '#ec4899')] } }),
+            decomp: new Chart(document.getElementById('c-decomp'), {
+                ...chartBase,
+                data: {
+                    datasets: [
+                        getDs('Reward PnL', '#3b82f6'),
+                        getDs('DD Penalty', '#ef4444'),
+                        getDs('Market Mode', '#10b981'),
+                        getDs('Target Vol', '#f59e0b')
+                    ]
+                },
+                options: { ...chartBase.options, scales: { ...chartBase.options.scales, y1: { position: 'right', grid: { display: false }, max: 5 } } }
+            }),
+            micro: new Chart(document.getElementById('c-micro'), {
+                ...chartBase, data: {
+                    datasets: [
+                        getDs('Hurst', '#10b981'), getDs('Efficiency', '#3b82f6'), getDs('Persistence', '#ec4899')
+                    ]
+                }
+            }),
+            entropy: new Chart(document.getElementById('c-entropy'), { ...chartBase, data: { datasets: [getDs('Entropy', '#3b82f6')] } }),
+            kl: new Chart(document.getElementById('c-kl'), { ...chartBase, data: { datasets: [getDs('Policy KL', '#10b981')] } }),
+        };
+
+        charts.decision.data.datasets[0].yAxisID = 'y';
+        charts.decision.data.datasets[1].yAxisID = 'y1';
+        charts.decision.data.datasets[2].yAxisID = 'y1';
+        charts.decomp.data.datasets[0].yAxisID = 'y';
+        charts.decomp.data.datasets[1].yAxisID = 'y';
+        charts.decomp.data.datasets[2].yAxisID = 'y1';
+        charts.decomp.data.datasets[3].yAxisID = 'y1';
+
+        async function fetchData(file) {
+            try {
+                const r = await fetch('live_stats/' + file + '?t=' + Date.now());
+                if (!r.ok) return null;
+                const text = await r.text();
+                return new Promise(res => {
+                    Papa.parse(text, {
+                        header: true, dynamicTyping: true, skipEmptyLines: true,
+                        complete: d => res(d.data.filter(i => i && Object.values(i)[0] !== null))
+                    });
+                });
+            } catch (e) { return null; }
+        }
+
+        async function updateStat(id, deltaId, val, prevVal, isPct = false, inverse = false) {
+            const el = document.getElementById(id);
+            const del = document.getElementById(deltaId);
+            if (!el || val === undefined) return;
+            el.innerText = isPct ? (val * 100).toFixed(1) + '%' : (id === 'v-equity' ? '$' : '') + val.toFixed(2);
+            if (prevVal !== undefined) {
+                const diff = val - prevVal;
+                if (Math.abs(diff) > 1e-6) {
+                    const good = inverse ? diff < 0 : diff > 0;
+                    del.innerText = (diff > 0 ? '▲' : '▼') + (isPct ? (Math.abs(diff) * 100).toFixed(2) : Math.abs(diff).toFixed(2));
+                    del.className = 'delta ' + (good ? 'up' : 'down');
+                }
+            }
+        }
+
+        async function update() {
+            const ed = await fetchData('episode_stats.csv');
+            if (ed) {
+                const sd = ed.slice(-WINDOW_SIZE_EP);
+                charts.reward_ep.data.labels = sd.map(i => i.episode);
+                charts.reward_ep.data.datasets[0].data = sd.map(i => i.total_reward);
+                charts.reward_ep.update('none');
+            }
+
+            const sdRaw = await fetchData('step_stats.csv');
+            if (sdRaw) {
+                const stepData = sdRaw.slice(-WINDOW_SIZE_STEP);
+                const lbl = stepData.map(i => i.global_step);
+
+                const sync = (chart, dps) => {
+                    chart.data.labels = lbl;
+                    dps.forEach((d, i) => { if (chart.data.datasets[i]) chart.data.datasets[i].data = d; });
+                    chart.update('none');
+                };
+
+                sync(charts.equity, [stepData.map(i => i.net_worth)]);
+                sync(charts.decision, [stepData.map(i => i.price), stepData.map(i => i.target_weight), stepData.map(i => i.action_logit)]);
+                sync(charts.turnover, [stepData.map(i => i.weight_delta)]);
+                sync(charts.step_reward, [stepData.map(i => i.step_reward)]);
+                sync(charts.vol, [stepData.map(i => i.vol_ann)]);
+                sync(charts.micro, [stepData.map(i => i.hurst), stepData.map(i => i.efficiency), stepData.map(i => i.persistence)]);
+
+                const last = sdRaw[sdRaw.length - 1];
+                const prev = sdRaw[sdRaw.length - 2] || last;
+                updateStat('v-equity', 'd-equity', last.net_worth, prev.net_worth);
+                updateStat('v-wr', 'd-wr', last.win_rate, prev.win_rate, true);
+                updateStat('v-pf', 'd-pf', last.profit_factor, prev.profit_factor);
+                updateStat('v-dd', 'd-dd', last.max_drawdown, prev.max_drawdown, false, true);
+            }
+
+            const rd = await fetchData('reward_decomp.csv');
+            if (rd) {
+                const stepData = rd.slice(-WINDOW_SIZE_STEP);
+                charts.decomp.data.labels = stepData.map(i => i.global_step);
+                charts.decomp.data.datasets[0].data = stepData.map(i => i.pnl_reward);
+                charts.decomp.data.datasets[1].data = stepData.map(i => i.dd_penalty);
+                charts.decomp.data.datasets[2].data = stepData.map(i => i.regime);
+                charts.decomp.data.datasets[3].data = stepData.map(i => i.vol_scaling);
+                charts.decomp.update('none');
+            }
+
+            const hd = await fetchData('rl_health.csv');
+            if (hd) {
+                const l = hd[hd.length - 1];
+                document.getElementById('v-entropy').innerText = l.entropy.toFixed(4);
+                document.getElementById('v-kl').innerText = l.kl.toFixed(5);
+                document.getElementById('v-vloss').innerText = l.v_loss.toFixed(6);
+                document.getElementById('v-ev').innerText = l.explained_var.toFixed(3);
+
+                const stepData = hd.slice(-WINDOW_SIZE_STEP);
+                charts.entropy.data.labels = stepData.map(i => i.global_step);
+                charts.entropy.data.datasets[0].data = stepData.map(i => i.entropy);
+                charts.entropy.update('none');
+
+                charts.kl.data.labels = stepData.map(i => i.global_step);
+                charts.kl.data.datasets[0].data = stepData.map(i => i.kl);
+                charts.kl.update('none');
+            }
+        }
+
+        setInterval(update, 3000); update();
+    </script>
+</body>
+
+</html>

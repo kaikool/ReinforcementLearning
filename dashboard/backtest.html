@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Pro-Trader Backtest Visualizer</title>
+    <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #131722;
+            --card: #1e222d;
+            --accent: #2962ff;
+            --border: #2a2e39;
+            --text: #d1d4dc;
+            --text-dim: #787b86;
+            --success: #089981;
+            --danger: #f23645;
+            --sidebar-w: 280px;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-w);
+            background: var(--card);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            flex-shrink: 0;
+            z-index: 20;
+        }
+
+        .sb-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border);
+            background: #171b26;
+        }
+
+        .sb-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .sb-sub {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        .metric-group {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .grp-title {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            color: var(--accent);
+            font-weight: 700;
+            margin-bottom: 12px;
+            letter-spacing: 1px;
+        }
+
+        .m-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+
+        .m-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .m-lbl {
+            color: var(--text-dim);
+        }
+
+        .m-val {
+            font-weight: 600;
+            font-family: 'Consolas', monospace;
+        }
+
+        /* Main Content - Absolute Layout Strategy */
+        .main-content {
+            flex: 1;
+            position: relative;
+            background: var(--bg);
+            overflow: hidden;
+        }
+
+        /* Charts Area: Top 80% (60% Candle + 20% Equity) */
+        .charts-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 80%;
+            border-bottom: 1px solid var(--border);
+            z-index: 10;
+        }
+
+        /* Candle: 60vw height / 80vw container = 75% */
+        #chart-box {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 75%;
+        }
+
+        /* Equity: 20vw height / 80vw container = 25% */
+        #equity-box {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 25%;
+            border-top: 1px solid var(--border);
+        }
+
+        /* Table Area: Bottom 20% */
+        .table-box {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 20%;
+            overflow-y: auto;
+            background: var(--bg);
+            z-index: 9;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.75rem;
+        }
+
+        th {
+            position: sticky;
+            top: 0;
+            background: #171b26;
+            text-align: right;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-dim);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        th:first-child,
+        th:nth-child(2),
+        th:nth-child(3),
+        th:nth-child(4) {
+            text-align: left;
+        }
+
+        td {
+            padding: 6px 12px;
+            border-bottom: 1px solid var(--border);
+            text-align: right;
+            font-family: 'Consolas', monospace;
+            color: #b2b5be;
+        }
+
+        td:first-child,
+        td:nth-child(2),
+        td:nth-child(3),
+        td:nth-child(4) {
+            text-align: left;
+        }
+
+        tr:hover {
+            background: #2a2e39;
+            cursor: pointer;
+        }
+
+        tr.active {
+            background: rgba(41, 98, 255, 0.1);
+            border-left: 2px solid var(--accent);
+        }
+
+        .v-pos {
+            color: var(--success);
+        }
+
+        .v-neg {
+            color: var(--danger);
+        }
+
+        .type-buy {
+            color: var(--success);
+            background: rgba(8, 153, 129, 0.1);
+            padding: 2px 4px;
+            border-radius: 2px;
+            font-weight: 600;
+            font-size: 0.7rem;
+        }
+
+        .type-sell {
+            color: var(--danger);
+            background: rgba(242, 54, 69, 0.1);
+            padding: 2px 4px;
+            border-radius: 2px;
+            font-weight: 600;
+            font-size: 0.7rem;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #434651;
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #565a65;
+        }
+
+        #resizer {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 80%;
+            height: 10px;
+            /* Larger hit area */
+            margin-top: -5px;
+            background: transparent;
+            cursor: row-resize;
+            z-index: 100;
+        }
+
+        #resizer:after {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #2a2e39;
+            margin-top: -1px;
+            transition: background 0.2s;
+        }
+
+        #resizer:hover:after,
+        #resizer.active:after {
+            background: #2962ff;
+        }
+
+        #chart-resizer {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 75%;
+            height: 8px;
+            margin-top: -4px;
+            background: transparent;
+            cursor: row-resize;
+            z-index: 20;
+            /* Above charts */
+        }
+
+        #chart-resizer:after {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #2a2e39;
+            margin-top: -1px;
+            transition: background 0.2s;
+        }
+
+        #chart-resizer:hover:after,
+        #chart-resizer.active:after {
+            background: #2962ff;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading"
+        style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(19,23,34,0.95); display:flex; flex-direction:column; justify-content:center; align-items:center; z-index:9999; color:var(--accent);">
+        <div style="font-size:2rem; font-weight:bold; letter-spacing:2px; margin-bottom:10px">PRO QUANTS</div>
+        <div style="font-size:0.8rem; color:var(--text-dim); letter-spacing:1px">INITIALIZING TRADING ENGINE...</div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="sb-header">
+            <div class="sb-title">BACKTEST REPORT</div>
+            <div class="sb-sub" id="sym-info">XAUUSD | H1</div>
+        </div>
+        <div id="metrics-content">
+            <!-- Metrics Injected Here -->
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <div class="charts-container">
+            <div id="chart-box"></div>
+            <div id="chart-resizer"></div>
+            <div id="equity-box"></div>
+        </div>
+        <div id="resizer"></div>
+        <div class="table-box">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#ID</th>
+                        <th>Entry Time</th>
+                        <th>Exit Time</th>
+                        <th>Type</th>
+                        <th>Size</th>
+                        <th>Entry</th>
+                        <th>Exit</th>
+                        <th>Gro. PnL</th>
+                        <th>Fees</th>
+                        <th>Net PnL</th>
+                        <th>% Ret</th>
+                    </tr>
+                </thead>
+                <tbody id="tb"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="error-box"
+        style="display:none; position:fixed; bottom:0; left:0; width:100%; background:rgba(0,0,0,0.9); color:#ff5252; padding:20px; z-index:10000; font-family:monospace; font-size:12px; border-top:1px solid #ff5252; max-height:50vh; overflow:auto;">
+    </div>
+
+    <script>
+        (async function () {
+            const loading = document.getElementById('loading');
+            try {
+                if (typeof LightweightCharts === 'undefined') {
+                    throw new Error("LightweightCharts library not loaded.");
+                }
+
+                const res = await fetch('backtest/last_run.json?t=' + Date.now());
+                if (!res.ok) throw new Error("Chưa tìm thấy dữ liệu Backtest. Vui lòng chạy Backtest trước.");
+                const data = await res.json();
+
+                // 1. Robust Timestamp Parsing
+                const parse = (v) => {
+                    if (typeof v === 'number') return v;
+                    if (!v) return null;
+                    const d = new Date(v);
+                    const t = Math.floor(d.getTime() / 1000);
+                    return isNaN(t) ? null : t;
+                };
+
+                const formatTime = (ts) => {
+                    if (!ts) return '---';
+                    const d = new Date(ts * 1000);
+                    const date = d.toLocaleDateString('vi-VN');
+                    const time = d.toLocaleTimeString('vi-VN');
+                    return `${date}<br><small>${time}</small>`;
+                };
+
+                // --- Metrics Injection (Sidebar) ---
+                const meta = data.metrics || {};
+                const sbContent = document.getElementById('metrics-content');
+                sbContent.innerHTML = '';
+
+                // Helper to render a category
+                const renderCategory = (title, items) => {
+                    if (!items || Object.keys(items).length === 0) return;
+                    const group = document.createElement('div');
+                    group.className = 'metric-group';
+
+                    const t = document.createElement('div');
+                    t.className = 'grp-title';
+                    t.innerText = title;
+                    group.appendChild(t);
+
+                    Object.keys(items).forEach(k => {
+                        const val = String(items[k]);
+                        const row = document.createElement('div');
+                        row.className = 'm-row';
+
+                        let valClass = 'm-val';
+                        if (val.includes('%') || val.includes('$')) {
+                            if (val.includes('-')) valClass += ' v-neg';
+                            else if (val !== '0.00%' && val !== '$0.00') valClass += ' v-pos';
+                        }
+
+                        row.innerHTML = `<span class="m-lbl">${k}</span><span class="${valClass}">${val}</span>`;
+                        group.appendChild(row);
+                    });
+                    sbContent.appendChild(group);
+                };
+
+                // Render defined categories in order
+                const categories = ['Overview', 'Risk & Quality', 'Trade Statistics', 'Detailed Analysis'];
+                categories.forEach(cat => renderCategory(cat, meta[cat]));
+
+                // Fallback for flat metrics
+                const flats = {};
+                Object.keys(meta).forEach(k => {
+                    if (typeof meta[k] !== 'object' && !categories.includes(k)) flats[k] = meta[k];
+                });
+                renderCategory('Misc', flats);
+
+                if (meta['Overview']) {
+                    document.getElementById('sym-info').innerText = `${data.symbol || 'XAUUSD'} | FINAL: ${meta['Overview']['Equity Final'] || '---'}`;
+                }
+
+                // --- Chart Init ---
+                const chartProps = {
+                    layout: { background: { color: '#131722' }, textColor: '#d1d4dc' },
+                    grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
+                    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false },
+                    rightPriceScale: { visible: true, borderVisible: true, borderColor: '#2a2e39', width: 60, alignLabels: true },
+                    crosshair: { mode: 1, vertLine: { color: '#787b86', labelBackgroundColor: '#1e222d' }, horzLine: { color: '#787b86', labelBackgroundColor: '#1e222d' } }
+                };
+
+                const chart = LightweightCharts.createChart(document.getElementById('chart-box'), chartProps);
+                const candleSeries = chart.addCandlestickSeries({ upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350' });
+
+                const eChart = LightweightCharts.createChart(document.getElementById('equity-box'), chartProps);
+                const eSeries = eChart.addLineSeries({ color: '#2962FF', lineWidth: 2, priceFormat: { type: 'price', precision: 2, minMove: 0.01 } });
+
+                // --- Data Load & Filtering ---
+                const candleData = (data.candles || [])
+                    .map(c => ({
+                        time: parse(c.time),
+                        open: Number(c.open),
+                        high: Number(c.high),
+                        low: Number(c.low),
+                        close: Number(c.close)
+                    }))
+                    .filter(c => c.time !== null && !isNaN(c.open) && !isNaN(c.high) && !isNaN(c.low) && !isNaN(c.close));
+
+                const equityData = (data.equity || [])
+                    .map(e => ({ time: parse(e.time), value: Number(e.value) }))
+                    .filter(e => e.time !== null && !isNaN(e.value));
+
+                if (candleData.length === 0) throw new Error("No valid candle data found.");
+
+                candleData.sort((a, b) => a.time - b.time);
+                equityData.sort((a, b) => a.time - b.time);
+
+                candleSeries.setData(candleData);
+                eSeries.setData(equityData);
+
+                // Markers
+                const markers = [];
+                (data.trades || []).forEach(t => {
+                    const t1 = parse(t.entry_time);
+                    const t2 = parse(t.exit_time);
+
+                    if (t1) {
+                        markers.push({
+                            time: t1,
+                            position: t.type === 'BUY' ? 'belowBar' : 'aboveBar',
+                            color: t.type === 'BUY' ? '#26a69a' : '#ef5350',
+                            shape: t.type === 'BUY' ? 'arrowUp' : 'arrowDown',
+                            text: `IN:${t.id}`
+                        });
+                    }
+                    if (t2) {
+                        markers.push({
+                            time: t2,
+                            position: t.type === 'BUY' ? 'aboveBar' : 'belowBar', // Close Buy -> Sell (Above)
+                            color: '#b2b5be', // Neutral Color for Exit
+                            shape: t.type === 'BUY' ? 'arrowDown' : 'arrowUp',
+                            text: `OUT:${t.id}`
+                        });
+                    }
+                });
+                markers.sort((a, b) => a.time - b.time);
+                candleSeries.setMarkers(markers);
+
+                // --- Table ---
+                const tb = document.getElementById('tb');
+                tb.innerHTML = '';
+                [...(data.trades || [])].reverse().forEach(t => {
+                    const tr = document.createElement('tr');
+                    const isWin = t.net_pnl >= 0;
+                    tr.innerHTML = `
+                        <td><span class="id-badge">${t.id}</span></td>
+                        <td>${formatTime(parse(t.entry_time))}</td>
+                        <td>${formatTime(parse(t.exit_time))}</td>
+                        <td><span class="${t.type === 'BUY' ? 'type-buy' : 'type-sell'}">${t.type}</span></td>
+                        <td>${Number(t.contracts).toFixed(2)}</td>
+                        <td>${Number(t.entry_price).toFixed(2)}</td>
+                        <td>${Number(t.exit_price).toFixed(2)}</td>
+                        <td class="${t.gross_pnl >= 0 ? 'v-pos' : 'v-neg'}">${Number(t.gross_pnl).toFixed(2)}</td>
+                        <td style="color:#f0ad4e">${Number(t.fees).toFixed(2)}</td>
+                        <td class="${isWin ? 'v-pos' : 'v-neg'}" style="font-weight:700">${Number(t.net_pnl).toFixed(2)}</td>
+                        <td class="${isWin ? 'v-pos' : 'v-neg'}">${Number(t.pnl_pct).toFixed(2)}%</td>
+                    `;
+                    tr.onclick = () => {
+                        const t1 = parse(t.entry_time), t2 = parse(t.exit_time);
+                        if (t1 && t2) {
+                            const buf = Math.max((t2 - t1) * 2, 3600);
+                            chart.timeScale().setVisibleRange({ from: t1 - buf, to: t2 + buf });
+                        }
+                        document.querySelectorAll('tr').forEach(r => r.classList.remove('active'));
+                        tr.classList.add('active');
+                    };
+                    tb.appendChild(tr);
+                });
+
+                // --- Auto Resize with ResizeObserver & Split Logic ---
+                let chartSplitRatio = 0.75; // Initial split
+
+                const updateChartLayout = (w, h) => {
+                    const h1 = Math.floor(h * chartSplitRatio);
+                    const h2 = Math.floor(h * (1 - chartSplitRatio));
+
+                    if (w > 0 && h > 0) {
+                        chart.applyOptions({ width: w, height: h1 });
+                        eChart.applyOptions({ width: w, height: h2 });
+
+                        // Update DOM elements for visual consistency
+                        const chartBox = document.getElementById('chart-box');
+                        const equityBox = document.getElementById('equity-box');
+                        const chartResizer = document.getElementById('chart-resizer');
+
+                        if (chartBox) chartBox.style.height = `${chartSplitRatio * 100}%`;
+                        if (equityBox) equityBox.style.height = `${(1 - chartSplitRatio) * 100}%`;
+                        if (chartResizer) chartResizer.style.top = `${chartSplitRatio * 100}%`;
+                    }
+                }
+
+                const resizeObserver = new ResizeObserver(entries => {
+                    for (let entry of entries) {
+                        const w = Math.floor(entry.contentRect.width);
+                        const h = Math.floor(entry.contentRect.height);
+                        updateChartLayout(w, h);
+                    }
+                });
+
+                const chartContainer = document.querySelector('.charts-container');
+                if (chartContainer) resizeObserver.observe(chartContainer);
+
+                // --- Resizer Logic ---
+                const resizer = document.getElementById('resizer');
+                const chartResizer = document.getElementById('chart-resizer');
+                const tableBox = document.querySelector('.table-box');
+                const mainContent = document.querySelector('.main-content');
+                let isResizingTable = false;
+                let isResizingChart = false;
+
+                resizer.addEventListener('mousedown', () => {
+                    isResizingTable = true;
+                    resizer.classList.add('active');
+                    document.body.style.cursor = 'row-resize';
+                    document.body.style.userSelect = 'none';
+                });
+
+                chartResizer.addEventListener('mousedown', () => {
+                    isResizingChart = true;
+                    chartResizer.classList.add('active');
+                    document.body.style.cursor = 'row-resize';
+                    document.body.style.userSelect = 'none';
+                });
+
+                window.addEventListener('mousemove', (e) => {
+                    if (isResizingTable) {
+                        const containerRect = mainContent.getBoundingClientRect();
+                        const relativeY = e.clientY - containerRect.top;
+                        const totalHeight = containerRect.height;
+                        let percentage = (relativeY / totalHeight) * 100;
+                        if (percentage < 20) percentage = 20;
+                        if (percentage > 80) percentage = 80;
+
+                        chartContainer.style.height = `${percentage}%`;
+                        resizer.style.top = `${percentage}%`;
+                        tableBox.style.height = `${100 - percentage}%`;
+                    }
+                    else if (isResizingChart) {
+                        const containerRect = chartContainer.getBoundingClientRect();
+                        const relativeY = e.clientY - containerRect.top;
+                        const totalHeight = containerRect.height;
+
+                        let ratio = relativeY / totalHeight;
+                        if (ratio < 0.2) ratio = 0.2;
+                        if (ratio > 0.8) ratio = 0.8;
+
+                        chartSplitRatio = ratio;
+                        updateChartLayout(Math.floor(containerRect.width), Math.floor(containerRect.height));
+                    }
+                });
+
+                window.addEventListener('mouseup', () => {
+                    if (isResizingTable || isResizingChart) {
+                        isResizingTable = false;
+                        isResizingChart = false;
+                        resizer.classList.remove('active');
+                        chartResizer.classList.remove('active');
+                        document.body.style.cursor = '';
+                        document.body.style.userSelect = '';
+                    }
+                });
+
+                // --- Sync (Activated AFTER data load) ---
+                const syncHandler = (source, target) => (r) => { if (r) target.timeScale().setVisibleRange(r); };
+                chart.timeScale().subscribeVisibleTimeRangeChange(syncHandler(chart, eChart));
+                eChart.timeScale().subscribeVisibleTimeRangeChange(syncHandler(eChart, chart));
+
+                chart.subscribeCrosshairMove(p => { if (p.time) eChart.setCrosshairPosition(0, p.time, eSeries); else eChart.clearCrosshairPosition(); });
+                eChart.subscribeCrosshairMove(p => { if (p.time) chart.setCrosshairPosition(0, p.time, candleSeries); else chart.clearCrosshairPosition(); });
+
+                loading.style.display = 'none';
+
+            } catch (err) {
+                console.error("Critical error:", err);
+                loading.innerHTML = `<div style="text-align:center">
+                    <div style="color:#f23645; font-size:1.2rem; margin-bottom:10px">CHƯA CÓ DỮ LIỆU</div>
+                    <div style="font-size:0.8rem; color:#787b86">${err.message}</div>
+                    <button onclick="location.reload()" style="margin-top:20px; padding:10px 20px; background:white; color:black; border:none; border-radius:4px; font-weight:bold; cursor:pointer">THỬ LẠI</button>
+                    <button onclick="document.getElementById('error-box').style.display='block'" style="margin-top:10px; padding:5px 10px; background:transparent; color:#787b86; border:1px solid #333; cursor:pointer; display:block; margin:10px auto">CHI TIẾT LỖI</button>
+                </div>`;
+                const errBox = document.getElementById('error-box');
+                errBox.innerText = err.stack || err.message;
+            }
+        })();
+    </script>
+</body>
+
+</html>
